@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tic-Tac-Toe</title>
+<style>
+  :root { --bg:#14161c; --card:#1e222b; --line:#2e3441; --x:#ff6b6b; --o:#4dd4ac; --text:#e8eaf0; }
+  * { box-sizing: border-box; }
+  body {
+    margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  .app { width:min(92vw,360px); text-align:center; }
+  h1 { margin:0 0 12px; font-size:1.6rem; letter-spacing:.5px; }
+  .mode { display:flex; gap:8px; justify-content:center; margin-bottom:14px; }
+  .mode button, .reset {
+    background:var(--card); color:var(--text); border:1px solid var(--line);
+    padding:8px 14px; border-radius:8px; cursor:pointer; font-size:.9rem;
+  }
+  .mode button.active { border-color:var(--o); color:var(--o); }
+  #status { height:28px; margin-bottom:10px; font-size:1.05rem; }
+  .board { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .cell {
+    aspect-ratio:1; background:var(--card); border:1px solid var(--line); border-radius:12px;
+    font-size:3rem; font-weight:700; cursor:pointer; color:var(--text);
+    transition:background .15s, transform .1s;
+  }
+  .cell:hover:not(:disabled) { background:#262b36; transform:scale(1.03); }
+  .cell.X { color:var(--x); }
+  .cell.O { color:var(--o); }
+  .cell.win { background:#2b3a35; border-color:var(--o); }
+  .score { display:flex; justify-content:space-around; margin:16px 0 12px; font-size:.95rem; color:#aab0bf; }
+  .score b { color:var(--text); font-size:1.2rem; display:block; }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Tic-Tac-Toe</h1>
+  <div class="mode">
+    <button id="m-ai" class="active">vs Computer</button>
+    <button id="m-2p">2 Players</button>
+  </div>
+  <div id="status"></div>
+  <div class="board" id="board"></div>
+  <div class="score">
+    <div>X<b id="sx">0</b></div>
+    <div>Draws<b id="sd">0</b></div>
+    <div>O<b id="so">0</b></div>
+  </div>
+  <button class="reset" id="reset">New Game</button>
+</div>
+
+<script>
+const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+const boardEl = document.getElementById('board');
+const statusEl = document.getElementById('status');
+let board, turn, over, vsAI = true;
+const score = { X:0, O:0, D:0 };
+
+// build cells
+const cells = [];
+for (let i = 0; i < 9; i++) {
+  const b = document.createElement('button');
+  b.className = 'cell';
+  b.addEventListener('click', () => play(i));
+  boardEl.appendChild(b);
+  cells.push(b);
+}
+
+function winner(b) {
+  for (const [a,c,d] of LINES) {
+    if (b[a] && b[a] === b[c] && b[a] === b[d]) return { who: b[a], line: [a,c,d] };
+  }
+  return null;
+}
+
+function newGame() {
+  board = Array(9).fill('');
+  turn = 'X';
+  over = false;
+  cells.forEach(c => { c.textContent = ''; c.className = 'cell'; c.disabled = false; });
+  statusEl.textContent = "X's turn";
+}
+
+function play(i) {
+  if (over || board[i]) return;
+  if (vsAI && turn === 'O') return; // ignore clicks during computer turn
+  place(i);
+  if (!over && vsAI && turn === 'O') setTimeout(() => place(bestMove()), 350);
+}
+
+function place(i) {
+  board[i] = turn;
+  cells[i].textContent = turn;
+  cells[i].classList.add(turn);
+
+  const w = winner(board);
+  if (w) {
+    over = true;
+    w.line.forEach(k => cells[k].classList.add('win'));
+    score[w.who]++;
+    statusEl.textContent = `${w.who} wins! 🎉`;
+  } else if (board.every(Boolean)) {
+    over = true;
+    score.D++;
+    statusEl.textContent = "It's a draw";
+  } else {
+    turn = turn === 'X' ? 'O' : 'X';
+    statusEl.textContent = `${turn}'s turn`;
+  }
+  if (over) cells.forEach(c => c.disabled = true);
+  document.getElementById('sx').textContent = score.X;
+  document.getElementById('so').textContent = score.O;
+  document.getElementById('sd').textContent = score.D;
+}
+
+// Unbeatable computer (minimax) — plays O
+function minimax(b, isO) {
+  const w = winner(b);
+  if (w) return w.who === 'O' ? 1 : -1;
+  if (b.every(Boolean)) return 0;
+  let best = isO ? -Infinity : Infinity;
+  for (let i = 0; i < 9; i++) {
+    if (b[i]) continue;
+    b[i] = isO ? 'O' : 'X';
+    const s = minimax(b, !isO);
+    b[i] = '';
+    best = isO ? Math.max(best, s) : Math.min(best, s);
+  }
+  return best;
+}
+
+function bestMove() {
+  let best = -Infinity, move = -1;
+  for (let i = 0; i < 9; i++) {
+    if (board[i]) continue;
+    board[i] = 'O';
+    const s = minimax(board, false);
+    board[i] = '';
+    if (s > best) { best = s; move = i; }
+  }
+  return move;
+}
+
+function setMode(ai) {
+  vsAI = ai;
+  document.getElementById('m-ai').classList.toggle('active', ai);
+  document.getElementById('m-2p').classList.toggle('active', !ai);
+  score.X = score.O = score.D = 0;
+  newGame();
+  ['sx','so','sd'].forEach(id => document.getElementById(id).textContent = 0);
+}
+
+document.getElementById('m-ai').onclick = () => setMode(true);
+document.getElementById('m-2p').onclick = () => setMode(false);
+document.getElementById('reset').onclick = newGame;
+newGame();
+</script>
+</body>
+</html>
