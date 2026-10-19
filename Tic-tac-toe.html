@@ -11,7 +11,7 @@
     margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
     background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
   }
-  .app { width:min(92vw,360px); text-align:center; }
+  .app { width:min(92vw,360px); text-align:center; padding:20px 0; }
   h1 { margin:0 0 12px; font-size:1.6rem; letter-spacing:.5px; }
   .mode { display:flex; gap:8px; justify-content:center; margin-bottom:14px; }
   .mode button, .reset {
@@ -19,7 +19,13 @@
     padding:8px 14px; border-radius:8px; cursor:pointer; font-size:.9rem;
   }
   .mode button.active { border-color:var(--o); color:var(--o); }
-  #status { height:28px; margin-bottom:10px; font-size:1.05rem; }
+  #status { min-height:28px; margin-bottom:8px; font-size:1.05rem; }
+  .timer-wrap { margin:0 auto 14px; width:100%; }
+  .timer-label { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; color:#aab0bf; font-size:.9rem; }
+  #timer { font-weight:700; color:var(--o); font-variant-numeric:tabular-nums; }
+  .timer-track { height:7px; border-radius:99px; background:var(--line); overflow:hidden; }
+  #timer-bar { height:100%; width:100%; background:var(--o); transition:width .2s linear, background .2s; }
+  #timer-bar.warning { background:var(--x); }
   .board { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
   .cell {
     aspect-ratio:1; background:var(--card); border:1px solid var(--line); border-radius:12px;
@@ -32,6 +38,8 @@
   .cell.win { background:#2b3a35; border-color:var(--o); }
   .score { display:flex; justify-content:space-around; margin:16px 0 12px; font-size:.95rem; color:#aab0bf; }
   .score b { color:var(--text); font-size:1.2rem; display:block; }
+  .reset { margin-top:2px; }
+  .reset:hover, .mode button:hover { border-color:var(--o); }
 </style>
 </head>
 <body>
@@ -41,8 +49,17 @@
     <button id="m-ai" class="active">vs Computer</button>
     <button id="m-2p">2 Players</button>
   </div>
-  <div id="status"></div>
-  <div class="board" id="board"></div>
+  <div id="status" aria-live="polite">X's turn</div>
+
+  <div class="timer-wrap" aria-label="Move timer">
+    <div class="timer-label">
+      <span>Time left for this move</span>
+      <span id="timer">15s</span>
+    </div>
+    <div class="timer-track"><div id="timer-bar"></div></div>
+  </div>
+
+  <div class="board" id="board" aria-label="Tic-Tac-Toe board"></div>
   <div class="score">
     <div>X<b id="sx">0</b></div>
     <div>Draws<b id="sd">0</b></div>
@@ -53,16 +70,26 @@
 
 <script>
 const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+const MOVE_TIME = 15; // seconds allowed for each move
+
 const boardEl = document.getElementById('board');
 const statusEl = document.getElementById('status');
+const timerEl = document.getElementById('timer');
+const timerBar = document.getElementById('timer-bar');
+
 let board, turn, over, vsAI = true;
+let timerInterval = null;
+let timeLeft = MOVE_TIME;
+let turnStartedAt = 0;
+let gameId = 0; // prevents an old computer timeout from affecting a new game
 const score = { X:0, O:0, D:0 };
 
-// build cells
+// Build cells
 const cells = [];
 for (let i = 0; i < 9; i++) {
   const b = document.createElement('button');
   b.className = 'cell';
+  b.setAttribute('aria-label', `Cell ${i + 1}`);
   b.addEventListener('click', () => play(i));
   boardEl.appendChild(b);
   cells.push(b);
@@ -70,27 +97,104 @@ for (let i = 0; i < 9; i++) {
 
 function winner(b) {
   for (const [a,c,d] of LINES) {
-    if (b[a] && b[a] === b[c] && b[a] === b[d]) return { who: b[a], line: [a,c,d] };
+    if (b[a] && b[a] === b[c] && b[a] === b[d]) {
+      return { who: b[a], line: [a,c,d] };
+    }
   }
   return null;
 }
 
+function stopTimer() {
+  if (timerInterval !== null) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+}
+
+function updateTimerDisplay() {
+  timerEl.textContent = `${timeLeft}s`;
+  timerBar.style.width = `${(timeLeft / MOVE_TIME) * 100}%`;
+  timerBar.classList.toggle('warning', timeLeft <= 5);
+}
+
+function startTimer() {
+  stopTimer();
+  timeLeft = MOVE_TIME;
+  turnStartedAt = Date.now();
+  updateTimerDisplay();
+
+  // The timestamp-based calculation avoids drifting if the browser pauses intervals.
+  timerInterval = setInterval(() => {
+    if (over) {
+      stopTimer();
+      return;
+    }
+
+    const elapsed = Math.floor((Date.now() - turnStartedAt) / 1000);
+    timeLeft = Math.max(0, MOVE_TIME - elapsed);
+    updateTimerDisplay();
+
+    if (timeLeft <= 0) {
+      handleTimeout();
+    }
+  }, 100);
+}
+
+function handleTimeout() {
+  if (over) return;
+  stopTimer();
+  over = true;
+  gameId++;
+
+  const winnerPlayer = turn === 'X' ? 'O' : 'X';
+  score[winnerPlayer]++;
+  statusEl.textContent = `${turn} ran out of time. ${winnerPlayer} wins!`;
+  cells.forEach(c => c.disabled = true);
+  updateScore();
+}
+
+function updateScore() {
+  document.getElementById('sx').textContent = score.X;
+  document.getElementById('so').textContent = score.O;
+  document.getElementById('sd').textContent = score.D;
+}
+
 function newGame() {
+  gameId++;
+  stopTimer();
   board = Array(9).fill('');
   turn = 'X';
   over = false;
-  cells.forEach(c => { c.textContent = ''; c.className = 'cell'; c.disabled = false; });
+  cells.forEach(c => {
+    c.textContent = '';
+    c.className = 'cell';
+    c.disabled = false;
+  });
   statusEl.textContent = "X's turn";
+  startTimer();
 }
 
 function play(i) {
   if (over || board[i]) return;
   if (vsAI && turn === 'O') return; // ignore clicks during computer turn
+
   place(i);
-  if (!over && vsAI && turn === 'O') setTimeout(() => place(bestMove()), 350);
+
+  if (!over && vsAI && turn === 'O') {
+    // Stop the timer while the computer is choosing its move.
+    stopTimer();
+    const currentGameId = gameId;
+    setTimeout(() => {
+      if (over || currentGameId !== gameId || turn !== 'O') return;
+      place(bestMove());
+    }, 350);
+  }
 }
 
 function place(i) {
+  if (i < 0 || i > 8 || board[i] || over) return;
+
+  stopTimer();
   board[i] = turn;
   cells[i].textContent = turn;
   cells[i].classList.add(turn);
@@ -108,11 +212,19 @@ function place(i) {
   } else {
     turn = turn === 'X' ? 'O' : 'X';
     statusEl.textContent = `${turn}'s turn`;
+    // In computer mode, O's timer is paused while the AI thinks.
+    if (!(vsAI && turn === 'O')) startTimer();
+    else {
+      timeLeft = MOVE_TIME;
+      updateTimerDisplay();
+    }
   }
-  if (over) cells.forEach(c => c.disabled = true);
-  document.getElementById('sx').textContent = score.X;
-  document.getElementById('so').textContent = score.O;
-  document.getElementById('sd').textContent = score.D;
+
+  if (over) {
+    stopTimer();
+    cells.forEach(c => c.disabled = true);
+  }
+  updateScore();
 }
 
 // Unbeatable computer (minimax) — plays O
@@ -120,6 +232,7 @@ function minimax(b, isO) {
   const w = winner(b);
   if (w) return w.who === 'O' ? 1 : -1;
   if (b.every(Boolean)) return 0;
+
   let best = isO ? -Infinity : Infinity;
   for (let i = 0; i < 9; i++) {
     if (b[i]) continue;
@@ -138,7 +251,10 @@ function bestMove() {
     board[i] = 'O';
     const s = minimax(board, false);
     board[i] = '';
-    if (s > best) { best = s; move = i; }
+    if (s > best) {
+      best = s;
+      move = i;
+    }
   }
   return move;
 }
@@ -149,7 +265,7 @@ function setMode(ai) {
   document.getElementById('m-2p').classList.toggle('active', !ai);
   score.X = score.O = score.D = 0;
   newGame();
-  ['sx','so','sd'].forEach(id => document.getElementById(id).textContent = 0);
+  updateScore();
 }
 
 document.getElementById('m-ai').onclick = () => setMode(true);
